@@ -53,6 +53,34 @@ jobs:
             mithunmh19/book-publisher-api:latest
             mithunmh19/book-publisher-api:${{ github.sha }}
 
+      # Temporary diagnostic: identifies the GitHub OIDC claims.
+      # It never prints the OIDC token itself.
+      - name: Diagnose GitHub OIDC claims
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RESPONSE=$(curl -fsS \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+          JWT=$(printf '%s' "$RESPONSE" | jq -r '.value')
+
+          JWT="$JWT" python - <<'PY'
+          import os
+          import json
+          import base64
+
+          token = os.environ["JWT"]
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+
+          print("OIDC subject (sub):", claims.get("sub"))
+          print("OIDC audience (aud):", claims.get("aud"))
+          PY
+
       - name: Configure AWS credentials using OIDC
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: aws-actions/configure-aws-credentials@v6.3.0
@@ -64,6 +92,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           EC2_INSTANCE_ID: i-085ddbc9eafbdf6d7
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -117,5 +146,6 @@ jobs:
             sleep 5
           done
 
-          echo "Timed out waiting for deployment. Check Systems Manager Run Command."
+          echo "Timed out waiting for deployment."
+          echo "Check AWS Systems Manager Run Command for details."
           exit 1
